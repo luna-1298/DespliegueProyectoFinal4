@@ -4,51 +4,57 @@ import numpy as np
 import joblib
 import os
 import sys
+import traceback
 
-# --- PARCHE DE COMPATIBILIDAD ROBUSTO PARA CONTROLAR CAMBIOS EN SCIKIT-LEARN ---
+# --- PARCHE DE COMPATIBILIDAD DINÁMICO --- 
+# Para evitar que el deserializador falle con "No module named '_loss'" o similares
 try:
-    # Si scikit-learn busca las clases de pérdida antiguas (_gb_losses)
     import sklearn.ensemble._loss as modern_loss
     sys.modules['sklearn.ensemble._gb_losses'] = modern_loss
     sys.modules['sklearn.ensemble.losses'] = modern_loss
-except ImportError:
+except Exception:
     pass
 
 try:
-    # Si scikit-learn busca clases antiguas de pérdida directamente en '_loss'
     import sklearn.ensemble._gb_losses as legacy_loss
     sys.modules['sklearn.ensemble._loss'] = legacy_loss
-except ImportError:
+except Exception:
     pass
 
-# Configuración de la página de Streamlit
+# Configuración de la página
 st.set_page_config(page_title="Predicción de Rendimiento Estudiantil", layout="wide")
 
 st.title("🎯 Aplicación Predictiva: Rendimiento Estudiantil")
-st.markdown("Esta aplicación procesa datos de estudiantes y predice si el alumno aprobará (**Pass**) o reprobará (**Fail**) utilizando un modelo optimizado de Bagging.")
+st.markdown("Esta aplicación procesa datos de estudiantes y predice el resultado utilizando el modelo optimizado.")
 
-# --- CARGA DE ARCHIVOS / MODELOS (Rutas dinámicas locales del repositorio) ---
-@st.cache_resource
+# --- CARGA DIRECTA SIN CACHÉ PARA EVITAR BLOQUEOS SILENCIOSOS --- 
 def cargar_recursos():
-    # Obtener el directorio absoluto donde se encuentra este archivo script (app.py)
     dir_actual = os.path.dirname(os.path.abspath(__file__))
-    
-    # Rutas relativas locales exclusivas para el despliegue en GitHub
     modelo_path = os.path.join(dir_actual, 'optimized_bagging_model.joblib')
     scaler_path = os.path.join(dir_actual, 'min_max_scaler.joblib')
     
+    if not os.path.exists(modelo_path):
+        # Intento de fallback para Colab local si aplica
+        modelo_path = '/content/optimized_bagging_model.joblib'
+    if not os.path.exists(scaler_path):
+        scaler_path = '/content/min_max_scaler.joblib'
+
+    st.info(f"Cargando modelo desde: {modelo_path}")
+    st.info(f"Cargando escalador desde: {scaler_path}")
+
     modelo = joblib.load(modelo_path)
     scaler = joblib.load(scaler_path)
     return modelo, scaler
 
 try:
     modelo_bagging, scaler = cargar_recursos()
-    st.success("¡Modelo y escalador cargados correctamente desde el repositorio!")
+    st.success("¡Recursos cargados con éxito!")
 except Exception as e:
-    st.error(f"Error al cargar los recursos: {e}. Asegúrate de subir 'optimized_bagging_model.joblib' y 'min_max_scaler.joblib' en la misma carpeta que 'app.py' en tu repositorio de GitHub.")
+    st.error("❌ Error crítico al cargar los archivos .joblib:")
+    st.code(traceback.format_exc())
     st.stop()
 
-# --- FORMULARIO DE ENTRADA PARA UN NUEVO REGISTRO ---
+# --- FORMULARIO DE ENTRADA ---
 st.header("📝 Ingresar Datos del Estudiante")
 col1, col2, col3 = st.columns(3)
 
@@ -71,41 +77,41 @@ with col3:
 
 # --- PROCESAMIENTO Y PREDICCIÓN ---
 if st.button("🔮 Predecir Rendimiento"):
-    # 1. Crear DataFrame con las variables ingresadas
-    datos_entrada = pd.DataFrame([{
-        'Age': age,
-        'StudyTime_hours_week': study_time_hours_week,
-        'Failures': failures,
-        'Absences': absences,
-        'Internet': 1 if internet == "yes" else 0,
-        'FreeTime': free_time,
-        'GoOut': go_out,
-        'Health': health,
-        'MotherEducation': mother_education,
-        'FatherEducation': father_education,
-        'TravelTime': travel_time
-    }])
-
-    # 2. Normalizar las variables usando el escalador entrenado
-    columnas_modelo = [
-        'Age', 'StudyTime_hours_week', 'Failures', 'Absences',
-        'Internet', 'FreeTime', 'GoOut', 'Health',
-        'MotherEducation', 'FatherEducation', 'TravelTime'
-    ]
-
     try:
+        # 1. Crear DataFrame
+        datos_entrada = pd.DataFrame([{
+            'Age': age,
+            'StudyTime_hours_week': study_time_hours_week,
+            'Failures': failures,
+            'Absences': absences,
+            'Internet': 1 if internet == "yes" else 0,
+            'FreeTime': free_time,
+            'GoOut': go_out,
+            'Health': health,
+            'MotherEducation': mother_education,
+            'FatherEducation': father_education,
+            'TravelTime': travel_time
+        }])
+
+        columnas_modelo = [
+            'Age', 'StudyTime_hours_week', 'Failures', 'Absences',
+            'Internet', 'FreeTime', 'GoOut', 'Health',
+            'MotherEducation', 'FatherEducation', 'TravelTime'
+        ]
+
+        # 2. Normalizar
         datos_entrada_normalizados = datos_entrada.copy()
         datos_entrada_normalizados[columnas_modelo] = scaler.transform(datos_entrada[columnas_modelo])
 
-        # 3. Realizar predicción
+        # 3. Predicción
         prediccion = modelo_bagging.predict(datos_entrada_normalizados[columnas_modelo])[0]
 
-        # 4. Mostrar resultado decorado
-        st.subheader("📊 Resultado de la Predicción:")
+        # 4. Mostrar Resultado
+        st.subheader("📊 Resultado:")
         if prediccion == 1:
-            st.success("🎉 **Aprobado (Pass / 1)**: Basado en los hábitos e historial del estudiante, se predice que aprobará de forma satisfactoria.")
+            st.success("🎉 **Aprobado (Pass / 1)**")
         else:
-            st.error("⚠️ **Reprobado (Fail / 0)**: Se detectaron factores de riesgo de reprobación. Es recomendable aplicar un plan de acompañamiento académico.")
-
+            st.error("⚠️ **Reprobado (Fail / 0)**")
     except Exception as e:
-        st.error(f"Ocurrió un error durante el procesamiento de la predicción: {e}")
+        st.error("❌ Error durante el procesamiento de la predicción:")
+        st.code(traceback.format_exc())
