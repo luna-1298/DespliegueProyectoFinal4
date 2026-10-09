@@ -6,8 +6,7 @@ import os
 import sys
 import traceback
 
-# --- PARCHE DE COMPATIBILIDAD DINÁMICO --- 
-# Para evitar que el deserializador falle con "No module named '_loss'" o similares
+# --- PARCHE DE COMPATIBILIDAD DINÁMICO PARA SCIKIT-LEARN ---
 try:
     import sklearn.ensemble._loss as modern_loss
     sys.modules['sklearn.ensemble._gb_losses'] = modern_loss
@@ -21,36 +20,37 @@ try:
 except Exception:
     pass
 
-# Configuración de la página
+# Configuración de Streamlit
 st.set_page_config(page_title="Predicción de Rendimiento Estudiantil", layout="wide")
 
 st.title("🎯 Aplicación Predictiva: Rendimiento Estudiantil")
-st.markdown("Esta aplicación procesa datos de estudiantes y predice el resultado utilizando el modelo optimizado.")
+st.markdown("Esta aplicación procesa datos de estudiantes y predice el resultado utilizando el modelo optimizado de Bagging.")
 
-# --- CARGA DIRECTA SIN CACHÉ PARA EVITAR BLOQUEOS SILENCIOSOS --- 
+# --- CARGA DINÁMICA DE RECURSOS --- 
+@st.cache_resource
 def cargar_recursos():
+    # Determinar el directorio absoluto en donde se aloja este archivo (app.py)
     dir_actual = os.path.dirname(os.path.abspath(__file__))
+    
+    # Construir rutas absolutas locales seguras para GitHub
     modelo_path = os.path.join(dir_actual, 'optimized_bagging_model.joblib')
     scaler_path = os.path.join(dir_actual, 'min_max_scaler.joblib')
     
+    # Fallback por si ejecutas localmente en este entorno de Colab
     if not os.path.exists(modelo_path):
-        # Intento de fallback para Colab local si aplica
         modelo_path = '/content/optimized_bagging_model.joblib'
     if not os.path.exists(scaler_path):
         scaler_path = '/content/min_max_scaler.joblib'
-
-    st.info(f"Cargando modelo desde: {modelo_path}")
-    st.info(f"Cargando escalador desde: {scaler_path}")
-
+        
     modelo = joblib.load(modelo_path)
     scaler = joblib.load(scaler_path)
     return modelo, scaler
 
 try:
     modelo_bagging, scaler = cargar_recursos()
-    st.success("¡Recursos cargados con éxito!")
+    st.success("¡Modelo y Escalador cargados correctamente desde las rutas absolutas del repositorio!")
 except Exception as e:
-    st.error("❌ Error crítico al cargar los archivos .joblib:")
+    st.error("❌ Error crítico al cargar los archivos serializados (.joblib):")
     st.code(traceback.format_exc())
     st.stop()
 
@@ -78,7 +78,7 @@ with col3:
 # --- PROCESAMIENTO Y PREDICCIÓN ---
 if st.button("🔮 Predecir Rendimiento"):
     try:
-        # 1. Crear DataFrame
+        # 1. Crear DataFrame con los datos de entrada
         datos_entrada = pd.DataFrame([{
             'Age': age,
             'StudyTime_hours_week': study_time_hours_week,
@@ -99,19 +99,20 @@ if st.button("🔮 Predecir Rendimiento"):
             'MotherEducation', 'FatherEducation', 'TravelTime'
         ]
 
-        # 2. Normalizar
+        # 2. Normalización de características con el escalador entrenado
         datos_entrada_normalizados = datos_entrada.copy()
         datos_entrada_normalizados[columnas_modelo] = scaler.transform(datos_entrada[columnas_modelo])
 
-        # 3. Predicción
+        # 3. Predicción empleando el modelo de Bagging
         prediccion = modelo_bagging.predict(datos_entrada_normalizados[columnas_modelo])[0]
 
-        # 4. Mostrar Resultado
-        st.subheader("📊 Resultado:")
+        # 4. Mostrar Resultados de la Predicción
+        st.subheader("📊 Resultado de la Inferencia:")
         if prediccion == 1:
-            st.success("🎉 **Aprobado (Pass / 1)**")
+            st.success("🎉 **Aprobado (Pass / 1)**: Basado en las características ingresadas, se predice que el alumno aprobará satisfactoriamente.")
         else:
-            st.error("⚠️ **Reprobado (Fail / 0)**")
+            st.error("⚠️ **Reprobado (Fail / 0)**: Se detectó un riesgo potencial de reprobación escolar.")
+            
     except Exception as e:
-        st.error("❌ Error durante el procesamiento de la predicción:")
+        st.error("❌ Error durante el procesamiento de los datos o la predicción:")
         st.code(traceback.format_exc())
